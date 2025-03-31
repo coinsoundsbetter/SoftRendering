@@ -11,8 +11,8 @@ public partial class RenderingForm : Form {
         InitRendering();
     }
 
-    private int screenWidth = 700;
-    private int screenHeight = 700;
+    private int screenWidth = 1920;
+    private int screenHeight = 1080;
     private Bitmap frameBuffer;
     private Graphics graphics;
     private Timer _timer; // 定时器控制绘制速度
@@ -20,14 +20,12 @@ public partial class RenderingForm : Form {
         Width = screenWidth;
         Height = screenHeight;
         graphics = CreateGraphics();
-        graphics.TranslateTransform(0, this.ClientSize.Height);
-        graphics.ScaleTransform(1, -1);
         frameBuffer = new Bitmap(screenWidth, screenHeight);
         Paint += OnPaint;
         _timer = new Timer();
-        _timer.Interval = 1000; // 30 FPS，大约每 33 毫秒更新一次
+        _timer.Interval = 1000;
         _timer.Tick += (sender, args) => {
-            //Invalidate();
+            Invalidate();
         };
         _timer.Start();
     }
@@ -36,100 +34,94 @@ public partial class RenderingForm : Form {
         ExecuteRendering();
     }
     
-    private Vector3 v0 = new Vector3(0, 0, 0);
-    private Vector3 v1 = new Vector3(10, 0, 0);
-    private Vector3 v2 = new Vector3(10, 5, 0);
+    private Vector3[] vertices = new[] {
+        new Vector3(-1, 0, 0),  // 左下 v0
+        new Vector3(0, 1, 0),   // 右下 v1
+        new Vector3(1, 0, 0)     // 顶部 v2
+    };
+    
     private void ExecuteRendering() {
         frameBuffer = new Bitmap(screenWidth, screenHeight);
         graphics.Clear(Color.Black);
         
-        // 在这里，我们尝试旋转一个三角形
-        // 1.旋转三角形的各个顶点
-        // 2.进行透视投影，将3D坐标转换为2D屏幕坐标
-        // 3.绘制
-
-        // 顶点旋转矩阵
-        var rotationMatrix = Utils.GetRotationMatrix(new Vector3(0, 1, 0), 360);
-        // 更新顶点坐标
-        v0 = Vector3.Transform(v0, rotationMatrix);
-        v1 = Vector3.Transform(v1, rotationMatrix);
-        v2 = Vector3.Transform(v2, rotationMatrix);
-        // 透视投影矩阵
-        float fov = (float)(Math.PI / 4);
-        float aspect = (float)screenWidth / (float)screenHeight;
-        float near = 1.0f;
-        float far = 10.0f;
-        Matrix4x4 projectionMatrix = Utils.CreatePerspectiveMatrix(fov, aspect, near, far);
-        // 将顶点转换到屏幕坐标
-        var p0 = Utils.ProjectPoint(v0, rotationMatrix, 
-            projectionMatrix, screenWidth, screenHeight);
-        var p1 = Utils.ProjectPoint(v1, rotationMatrix,
-            projectionMatrix, screenWidth, screenHeight);
-        var p2 = Utils.ProjectPoint(v2, rotationMatrix,
-            projectionMatrix, screenWidth, screenHeight);
-        var triangle = Utils.GetTriangle(p0, p1, p2);
-        Utils.SetTriangle(frameBuffer, triangle.one, triangle.two, triangle.three, Color.White);
-        graphics.DrawImage(frameBuffer, 0, 0);
-    }
-}
-
-public struct TriangleVector2
-{
-    public Vector2 one;
-    public Vector2 two;
-    public Vector2 three;
-
-    public TriangleVector2(Vector2 one, Vector2 two, Vector2 three)
-    {
-        this.one = one;
-        this.two = two;
-        this.three = three;
-    }
-}
-
-public struct TriangleVector3 {
-    public Vector3 one;
-    public Vector3 two;
-    public Vector3 three;
-    
-    public TriangleVector3(Vector3 one, Vector3 two, Vector3 three)
-    {
-        this.one = one;
-        this.two = two;
-        this.three = three;
+        // 定义摄像机
+        Vector3 cameraPos = new Vector3(0, 0, -10);
+        Vector3 cameraTarget = new Vector3(0, 0, 1);
+        Vector3 cameraUp = Vector3.UnitY;
+        // 创建视图矩阵：将世界空间中的顶点转换为摄像机空间
+        Matrix4x4 view = Matrix4x4.CreateLookAt(cameraPos, cameraTarget, cameraUp);
+        
+        // 计算透视投影矩阵
+        float fov = MathF.PI / 3;
+        float aspect = (float)screenWidth / screenHeight;
+        float near = 0.3f;
+        float far = 1000f;
+        var projection = Matrix4x4.CreatePerspectiveFieldOfView(fov, aspect, near, far);
+        
+        // 模型变换
+        Matrix4x4 model = Matrix4x4.Identity;
+        
+        // 总的变换矩阵mvp
+        Matrix4x4 transform = model * view * projection;
+        
+        // 绘制三角形
+        Point[] screenPoints = new Point[3];
+        for (int i = 0; i < 3; i++) {
+            Vector4 vertex = new Vector4(vertices[i], 1);
+            Vector4 transformed = Vector4.Transform(vertex, transform);
+            Vector3 ndc = Utils.PerspectiveDivide(transformed);
+            // 映射到屏幕坐标
+            var pointX = (int)((ndc.X + 1) * screenWidth * 0.5f);
+            var pointY = (int)((1 - ndc.Y) * screenHeight * 0.5f);
+            screenPoints[i] = new Point(pointX, pointY);
+        }
+        graphics.DrawPolygon(Pens.White, screenPoints);
     }
 }
 
 public static class Utils {
-
-    public static TriangleVector3 GetTriangle(Vector3 a, Vector3 b, Vector3 c)
+    
+    // 使用 Bresenham 画线
+    public static void DrawLine(Bitmap bitmap, Point p0, Point p1)
     {
-        // 计算叉积
-        float crossProduct = (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
+        int x0 = p0.X, y0 = p0.Y;
+        int x1 = p1.X, y1 = p1.Y;
 
-        // 如果叉积小于零，说明是逆时针排列，需要交换顺序
-        if (crossProduct < 0)
+        int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+        int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy, e2;
+
+        while (true)
         {
-            return new TriangleVector3(a, c, b); // 交换 b 和 c
+            if (x0 >= 0 && x0 < bitmap.Width && y0 >= 0 && y0 < bitmap.Height)
+            {
+                bitmap.SetPixel(x0, y0, Color.White);
+            }
+            if (x0 == x1 && y0 == y1) break;
+            e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
         }
-
-        // 否则，已经是顺时针排列
-        return new TriangleVector3(a, b, c);
     }
     
-    public static TriangleVector2 GetTriangle(Vector2 a, Vector2 b, Vector2 c)
+    public static Vector3 PerspectiveDivide(Vector4 v)
     {
-        // 计算 2D 叉积
-        float crossProduct = (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
-
-        // 如果叉积小于零，说明是逆时针排列，需要交换顺序
-        if (crossProduct < 0)
+        if (v.W != 0)
         {
-            return new TriangleVector2(a, c, b); // 交换 b 和 c
+            return new Vector3(v.X / v.W, v.Y / v.W, v.Z / v.W);
         }
-
-        // 否则，已经是顺时针排列
-        return new TriangleVector2(a, b, c);
+        return new Vector3(v.X, v.Y, v.Z);
+    }
+    
+    // 投影矩阵
+    public static Vector4 MultiplyProjectionMatrix(Matrix4x4 proj, Vector4 v)
+    {
+        return new Vector4(
+            proj.M11 * v.X + proj.M12 * v.Y + proj.M13 * v.Z + proj.M14 * v.W,
+            proj.M21 * v.X + proj.M22 * v.Y + proj.M23 * v.Z + proj.M24 * v.W,
+            proj.M31 * v.X + proj.M32 * v.Y + proj.M33 * v.Z + proj.M34 * v.W,
+            proj.M41 * v.X + proj.M42 * v.Y + proj.M43 * v.Z + proj.M44 * v.W
+        );
     }
     
     // 投影顶点到屏幕坐标
@@ -159,16 +151,29 @@ public static class Utils {
         return new Vector2(screenX, screenY);
     }
     
-    // 透视投影矩阵（将 3D 坐标转换到 2D 屏幕）
+    // 透视投影矩阵
     public static Matrix4x4 CreatePerspectiveMatrix(float fov, float aspect, float near, float far)
     {
         float f = 1.0f / (float)Math.Tan(fov / 2);
+    
         return new Matrix4x4(
             f / aspect, 0, 0, 0,
             0, f, 0, 0,
-            0, 0, far / (near - far), -1,
-            0, 0, (near * far) / (near - far), 0);
-    } 
+            0, 0, far / (near - far), (2 * near * far) / (near - far),
+            0, 0, -1, 0
+        );
+    }
+    
+    // 正交投影矩阵
+    public static Matrix4x4 CreateOrthographicMatrix(float left, float right, float bottom, float top, float near, float far)
+    {
+        return new Matrix4x4(
+            2 / (right - left), 0, 0, -(right + left) / (right - left),
+            0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
+            0, 0, -2 / (far - near), -(far + near) / (far - near),
+            0, 0, 0, 1
+        );
+    }
     
     // 罗德里格旋转公式:计算三维空间中，一个向量绕旋转轴旋转给定角度以后得到的新向量的计算公式
     public static Matrix4x4 GetRotationMatrix(Vector3 axis, float angle) {
