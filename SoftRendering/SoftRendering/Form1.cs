@@ -6,76 +6,211 @@ namespace SoftRendering;
 
 public partial class RenderingForm : Form {
     
-    public RenderingForm() {
+    Vector3[] vertices;
+    int[] indices;
+    Color[] faceColors;
+    Vector2[] projected;
+
+    float yaw = 0f, pitch = 0f;
+    Vector3 cameraPosition = new Vector3(0, 0, -10);
+    float moveSpeed = 0.1f;
+
+    Point lastMousePos;
+    bool isDragging = false;
+
+    public RenderingForm()
+    {
         InitializeComponent();
-        InitRendering();
-    }
+        this.DoubleBuffered = true;
+        this.Width = 800;
+        this.Height = 600;
 
-    private int screenWidth = 1920;
-    private int screenHeight = 1080;
-    private Bitmap frameBuffer;
-    private Graphics graphics;
-    private Timer _timer; // 定时器控制绘制速度
-    private void InitRendering() {
-        Width = screenWidth;
-        Height = screenHeight;
-        graphics = CreateGraphics();
-        frameBuffer = new Bitmap(screenWidth, screenHeight);
-        Paint += OnPaint;
-        _timer = new Timer();
-        _timer.Interval = 1000;
-        _timer.Tick += (sender, args) => {
-            Invalidate();
+        SetupCube();
+
+        this.MouseDown += (s, e) => { isDragging = true; lastMousePos = e.Location; };
+        this.MouseUp += (s, e) => { isDragging = false; };
+        this.MouseMove += (s, e) =>
+        {
+            if (isDragging)
+            {
+                float dx = e.X - lastMousePos.X;
+                float dy = e.Y - lastMousePos.Y;
+                yaw += dx * 0.01f;
+                pitch -= dy * 0.01f;
+                pitch = Math.Clamp(pitch, -1.5f, 1.5f);
+                lastMousePos = e.Location;
+                Invalidate();
+            }
         };
-        _timer.Start();
+
+        this.KeyDown += Form1_KeyDown;
     }
 
-    private void OnPaint(object? sender, PaintEventArgs e) {
-        ExecuteRendering();
+    private void Form1_KeyDown(object sender, KeyEventArgs e)
+    {
+        Vector3 forward = Vector3.Normalize(new Vector3(
+            (float)(Math.Cos(yaw) * Math.Cos(pitch)),
+            (float)(Math.Sin(pitch)),
+            (float)(Math.Sin(yaw) * Math.Cos(pitch))
+        ));
+
+        Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
+        Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
+
+        if (e.KeyCode == Keys.W)
+            cameraPosition += forward * moveSpeed;
+        if (e.KeyCode == Keys.S)
+            cameraPosition -= forward * moveSpeed;
+        if (e.KeyCode == Keys.A)
+            cameraPosition -= right * moveSpeed;
+        if (e.KeyCode == Keys.D)
+            cameraPosition += right * moveSpeed;
+        if (e.KeyCode == Keys.Space)
+            cameraPosition += up * moveSpeed;
+        if (e.KeyCode == Keys.ShiftKey)
+            cameraPosition -= up * moveSpeed;
+
+        Invalidate();
     }
-    
-    private Vector3[] vertices = new[] {
-        new Vector3(-1, 0, 0),  // 左下 v0
-        new Vector3(0, 1, 0),   // 右下 v1
-        new Vector3(1, 0, 0)     // 顶部 v2
-    };
-    
-    private void ExecuteRendering() {
-        frameBuffer = new Bitmap(screenWidth, screenHeight);
-        graphics.Clear(Color.Black);
-        
-        // 定义摄像机
-        Vector3 cameraPos = new Vector3(0, 0, -10);
-        Vector3 cameraTarget = new Vector3(0, 0, 1);
-        Vector3 cameraUp = Vector3.UnitY;
-        // 创建视图矩阵：将世界空间中的顶点转换为摄像机空间
-        Matrix4x4 view = Matrix4x4.CreateLookAt(cameraPos, cameraTarget, cameraUp);
-        
-        // 计算透视投影矩阵
-        float fov = MathF.PI / 3;
-        float aspect = (float)screenWidth / screenHeight;
-        float near = 0.3f;
-        float far = 1000f;
-        var projection = Matrix4x4.CreatePerspectiveFieldOfView(fov, aspect, near, far);
-        
-        // 模型变换
+
+    private void SetupCube()
+    {
+        vertices = new[]
+        {
+            new Vector3(-1, -1, -1),
+            new Vector3( 1, -1, -1),
+            new Vector3( 1,  1, -1),
+            new Vector3(-1,  1, -1),
+            new Vector3(-1, -1,  1),
+            new Vector3( 1, -1,  1),
+            new Vector3( 1,  1,  1),
+            new Vector3(-1,  1,  1),
+        };
+
+        indices = new int[]
+        {
+            0,1,2, 0,2,3, // front
+            5,4,7, 5,7,6, // back
+            4,0,3, 4,3,7, // left
+            1,5,6, 1,6,2, // right
+            3,2,6, 3,6,7, // top
+            4,5,1, 4,1,0  // bottom
+        };
+
+        faceColors = new[]
+        {
+            Color.Red,
+            Color.Green,
+            Color.Blue,
+            Color.Orange,
+            Color.Purple,
+            Color.Yellow
+        };
+
+        projected = new Vector2[vertices.Length];
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Color.Black);
+
+        float aspect = (float)Width / Height;
+        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView((float)Math.PI / 3f, aspect, 0.1f, 100f);
+
         Matrix4x4 model = Matrix4x4.Identity;
-        
-        // 总的变换矩阵mvp
-        Matrix4x4 transform = model * view * projection;
-        
-        // 绘制三角形
-        Point[] screenPoints = new Point[3];
-        for (int i = 0; i < 3; i++) {
-            Vector4 vertex = new Vector4(vertices[i], 1);
-            Vector4 transformed = Vector4.Transform(vertex, transform);
-            Vector3 ndc = Utils.PerspectiveDivide(transformed);
-            // 映射到屏幕坐标
-            var pointX = (int)((ndc.X + 1) * screenWidth * 0.5f);
-            var pointY = (int)((1 - ndc.Y) * screenHeight * 0.5f);
-            screenPoints[i] = new Point(pointX, pointY);
+
+        Vector3 forward = new Vector3(
+            (float)(Math.Cos(yaw) * Math.Cos(pitch)),
+            (float)(Math.Sin(pitch)),
+            (float)(Math.Sin(yaw) * Math.Cos(pitch))
+        );
+        Vector3 target = cameraPosition + forward;
+
+        Matrix4x4 view = Matrix4x4.CreateLookAt(cameraPosition, target, Vector3.UnitY);
+        Matrix4x4 vp = model * view * projection;
+
+        // Project all vertices
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            Vector4 transformed = Vector4.Transform(new Vector4(vertices[i], 1), vp);
+
+            // 透视除法
+            transformed /= transformed.W;
+
+            projected[i] = new Vector2(
+                (transformed.X + 1f) * 0.5f * Width,
+                (1f - transformed.Y) * 0.5f * Height
+            );
         }
-        graphics.DrawPolygon(Pens.White, screenPoints);
+
+        // Draw cube faces with backface culling
+        for (int i = 0; i < indices.Length; i += 6)
+        {
+            Color faceColor = faceColors[i / 6];
+            for (int j = 0; j < 6; j += 3)
+            {
+                int i0 = indices[i + j];
+                int i1 = indices[i + j + 1];
+                int i2 = indices[i + j + 2];
+
+                // Transform to world space
+                Vector3 v0 = Vector3.Transform(vertices[i0], model);
+                Vector3 v1 = Vector3.Transform(vertices[i1], model);
+                Vector3 v2 = Vector3.Transform(vertices[i2], model);
+
+                Vector3 edge1 = v1 - v0;
+                Vector3 edge2 = v2 - v0;
+                Vector3 normal = Vector3.Normalize(Vector3.Cross(edge1, edge2));
+                Vector3 viewDir = Vector3.Normalize(v0 - cameraPosition);
+
+                if (Vector3.Dot(normal, viewDir) >= 0)
+                    continue;
+
+                Vector2 a = projected[i0];
+                Vector2 b = projected[i1];
+                Vector2 c = projected[i2];
+
+                PointF[] tri = new PointF[]
+                {
+                    new PointF(a.X, a.Y),
+                    new PointF(b.X, b.Y),
+                    new PointF(c.X, c.Y)
+                };
+
+                using SolidBrush brush = new SolidBrush(faceColor);
+                g.FillPolygon(brush, tri);
+                g.DrawPolygon(Pens.Black, tri);
+            }
+        }
+
+        // Draw world axis
+        DrawLine(g, Vector3.Zero, new Vector3(2, 0, 0), Color.Red, vp);   // X
+        DrawLine(g, Vector3.Zero, new Vector3(0, 2, 0), Color.Green, vp); // Y
+        DrawLine(g, Vector3.Zero, new Vector3(0, 0, 2), Color.Blue, vp);  // Z
+    }
+
+    void DrawLine(Graphics g, Vector3 p1, Vector3 p2, Color color, Matrix4x4 vp)
+    {
+        Vector2? Project(Vector3 v)
+        {
+            Vector4 t = Vector4.Transform(new Vector4(v, 1), vp);
+            if (t.W <= 0) return null;
+            t /= t.W;
+            return new Vector2(
+                (t.X + 1f) * 0.5f * Width,
+                (1f - t.Y) * 0.5f * Height
+            );
+        }
+
+        var s = Project(p1);
+        var e = Project(p2);
+
+        if (s.HasValue && e.HasValue)
+        {
+            using Pen pen = new Pen(color, 2);
+            g.DrawLine(pen, s.Value.X, s.Value.Y, e.Value.X, e.Value.Y);
+        }
     }
 }
 
