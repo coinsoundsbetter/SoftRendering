@@ -188,6 +188,22 @@ public partial class RenderingForm : Form {
             int i1 = indices[i + 1];
             int i2 = indices[i + 2];
             
+            Vector3 v0 = vertices[i0];
+            Vector3 v1 = vertices[i1];
+            Vector3 v2 = vertices[i2];
+            
+            // 计算三角形世界空间下的法线
+            Vector3 edge1 = v1 - v0;
+            Vector3 edge2 = v2 - v0;
+            Vector3 normal = Vector3.Normalize(Vector3.Cross(edge1, edge2));
+
+            // 计算从三角形指向相机的方向（左手系：cameraPos - v0）
+            Vector3 viewDir = Vector3.Normalize(cameraPos - v0);
+
+            // 背面剔除：如果 normal 与视线方向夹角 > 90°，跳过
+            if (Vector3.Dot(normal, viewDir) <= 0)
+                continue;
+            
             Vector2 a = projected[i0];
             Vector2 b = projected[i1];
             Vector2 c = projected[i2];
