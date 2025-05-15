@@ -156,7 +156,6 @@ public partial class RenderingForm : Form {
         cameraPos += cameraForward * forwardInput * cameraSpeed;
         cameraPos += cameraUp * upInput * cameraSpeed;
         cameraPos += cameraRight * rightInput * cameraSpeed;
-        Console.WriteLine(forwardInput);
     }
 
     private void SetMVPMatrix() {
